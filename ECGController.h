@@ -6,7 +6,7 @@
 #include "ECGHRV1.h"
 #include "ECGHRV2.h"
 #include "ECGHRVDFA.h"
-#include "ECGClasses.h"
+#include "QRSClass.h"
 #include "ECGHRT.h"
 #include "ECGST.h"
 #include "ECGTWave.h"
@@ -15,6 +15,11 @@
 #include "ModulesMethods.h"
 
 #include <boost/scoped_ptr.hpp>
+
+namespace boost
+{
+	class thread;
+}
 
 /**
  * @class Class which controls executing all modules.
@@ -39,6 +44,7 @@ public:
   void setParamsTwaveAlt(ParametersTypes & params);
   void setParamsHRT(ParametersTypes & params);
   
+  void rerunAnalysis(std::function<void(std::string)> statusUpdate, std::function<void()> analysisComplete); //if analysis is running, then it's interrupted
   //methods for running modules
   void runECGBaseline();
   void runRPeaks();
@@ -54,13 +60,14 @@ public:
   //data
   ECGInfo ecg_info;
   ECGSignal raw_signal;
-  ECGSignal filtered_signal;
+  ECGSignalChannel filtered_signal;
   ECGRs r_peaks_data;
   ECGWaves waves_data;
   ECGHRV1 hrv1_data;
   ECGHRV2 hrv2_data;
   ECGHRVDFA hrv_dfa_data;
   ECGClasses classes_data;
+  QRSClass qrsclass_data;
   ECGST st_data;
   ECGTWave twave_data;
   ECGHRT hrt_data;
@@ -77,7 +84,6 @@ private:
   void setSTIntervalNotRun();
   void setTwaveAltNotRun();
   void setHRTNotRun();
-  
 
   //modules
   boost::scoped_ptr<ECGBaselineModule> ecg_baseline_module;
@@ -90,5 +96,9 @@ private:
   boost::scoped_ptr<STIntervalModule> st_interval_module;
   boost::scoped_ptr<TWaveAltModule> t_wave_alt_module;
   boost::scoped_ptr<HRTModule> hrt_module;
+
+  //computing thread
+  boost::thread * computation;
+  bool analysisCompl;
 };
 

@@ -1,19 +1,38 @@
 #include "ECGController.h"
 
-#include "BaselineRemoval.h"
-#include "RPeaksDetector.h"
+#include "ECGBaselineRemoval.h"
 #include "HRV1Analyzer.h"
+#include "HRTAnalyzer.h"
+#include "DFAAnalyzer.h"
+#include "RPeaksDetector.h"
+#include "STAnalysis.h"
+#include "QRSPointsDetector.h"
+#include "DFAAnalyzer.h"
+#include "GeometricAnalysis.h"
+#include "TWaveAltDetector.h"
+#include "QRSPointsDetector.h"
 
 #include "wfdb/wfdb.h"
 
 #include "tri_logger.hpp"
 
+#include <boost/thread.hpp>
+
 #define LOG_END TRI_LOG_STR("END: " << __FUNCTION__);
 
 ECGController::ECGController (void) :
-  ecg_baseline_module(new BaselineRemoval()),
+  ecg_baseline_module(new ECGBaselineRemoval()),
   rpeaks_module(new RPeaksDetector()),
-  hrv1_module(new HRV1Analyzer())
+  hrv_dfa_module(new DFAAnalyzer()),
+  hrt_module(new HRTAnalyzer()),
+  waves_module(NULL),
+  qrs_class_module(new QRSPointsDetector()),
+  t_wave_alt_module(new TWaveAltDetector()),
+  hrv1_module(new HRV1Analyzer()),
+  hrv2_module(new GeometricAnalysis()),
+  st_interval_module(new STAnalysis()),
+  computation(NULL),
+  analysisCompl(false)
 {
   TRI_LOG_STR("ECGController created, 20:51 17-12-2012");
   //TODO: create modules objects
@@ -22,6 +41,7 @@ ECGController::ECGController (void) :
 ECGController::~ECGController (void)
 {
   TRI_LOG_STR("ECGController destroyed");
+  delete computation;
 }
 
 void ECGController::setParamsECGBaseline (ParametersTypes & params)
@@ -147,7 +167,7 @@ void ECGController::runHRV1 ()
   {
     runRPeaks();
   }
-  hrv1_module->runModule(r_peaks_data, hrv1_data);
+  hrv1_module->runModule(ecg_info, r_peaks_data, hrv1_data);
   hrv1_module->run_ = true;
   LOG_END
 }
@@ -159,7 +179,7 @@ void ECGController::runHRV2 ()
   {
     runRPeaks();
   }
-  hrv2_module->runModule(r_peaks_data, hrv2_data);
+  hrv2_module->runModule(ecg_info,r_peaks_data, hrv2_data);
   hrv2_module->run_ = true;
   LOG_END
 }
@@ -183,11 +203,11 @@ void ECGController::runQRSClass ()
   {
     runECGBaseline();
   }
-  if (!waves_module->run_)
+  if (waves_module && !waves_module->run_)
   {
     runWaves();
   }
-  qrs_class_module->runModule(waves_data, filtered_signal, ecg_info, classes_data);
+  qrs_class_module->runModule(waves_data, filtered_signal, r_peaks_data, ecg_info, classes_data);
   qrs_class_module->run_ = true;
   LOG_END
 }
@@ -199,11 +219,15 @@ void ECGController::runSTInterval ()
   {
     runECGBaseline();
   }
-  if (!waves_module->run_)
+  if (!rpeaks_module->run_)
+  {
+    runRPeaks();
+  }
+  if (waves_module && !waves_module->run_)
   {
     runWaves();
   }
-  st_interval_module->runModule(waves_data, filtered_signal, ecg_info, st_data);
+  st_interval_module->runModule(r_peaks_data, waves_data, filtered_signal, ecg_info, st_data);
   st_interval_module->run_ = true;
   LOG_END
 }
@@ -215,7 +239,7 @@ void ECGController::runTwaveAlt ()
   {
     runECGBaseline();
   }
-  if (!waves_module->run_)
+  if (waves_module && !waves_module->run_)
   {
     runWaves();
   }
@@ -231,15 +255,15 @@ void ECGController::runHRT ()
   {
     runECGBaseline();
   }
-  if (!waves_module->run_)
+  if (!rpeaks_module->run_)
   {
-    runWaves();
+    runRPeaks();
   }
   if (!qrs_class_module->run_)
   {
     runQRSClass();
   }
-  hrt_module->runModule(waves_data, r_peaks_data, filtered_signal, ecg_info, hrt_data);
+  hrt_module->runModule(r_peaks_data, qrsclass_data, ecg_info, hrt_data);
   hrt_module->run_ = true;
   LOG_END
 }
@@ -272,7 +296,8 @@ void ECGController::setRPeaksNotRun()
 void ECGController::setWavesNotRun()
 {
   TRI_LOG_STR(__FUNCTION__);
-  waves_module->run_ = false;
+  if(waves_module)
+	waves_module->run_ = false;
   setQRSClassNotRun();
   setSTIntervalNotRun();
   setTwaveAltNotRun();
@@ -290,21 +315,24 @@ void ECGController::setHRV1NotRun()
 void ECGController::setHRV2NotRun()
 {
   TRI_LOG_STR(__FUNCTION__);
-  hrv2_module->run_ = false;
+  if(hrv2_module)
+	hrv2_module->run_ = false;
   LOG_END
 }
 
 void ECGController::setHRVDFANotRun()
 {
   TRI_LOG_STR(__FUNCTION__);
-  hrv_dfa_module->run_ = false;
+  if(hrv_dfa_module)
+	hrv_dfa_module->run_ = false;
   LOG_END
 }
 
 void ECGController::setQRSClassNotRun()
 {
   TRI_LOG_STR(__FUNCTION__);
-  qrs_class_module->run_ = false;
+  if(qrs_class_module)
+	qrs_class_module->run_ = false;
   setHRTNotRun();
   LOG_END
 }
@@ -319,14 +347,16 @@ void ECGController::setSTIntervalNotRun()
 void ECGController::setTwaveAltNotRun()
 {
   TRI_LOG_STR(__FUNCTION__);
-  t_wave_alt_module->run_ = false;
+  if(t_wave_alt_module)
+	t_wave_alt_module->run_ = false;
   LOG_END
 }
 
 void ECGController::setHRTNotRun()
 {
   TRI_LOG_STR(__FUNCTION__);
-  hrt_module->run_ = false;
+  if(hrt_module)
+	hrt_module->run_ = false;
   LOG_END
 }
 
@@ -389,7 +419,8 @@ bool ECGController::readFile(std::string filename)
   raw_signal.setSize(nr_samples);
 
   //alocate memory for filtered signal
-  filtered_signal.setSize(nr_samples);
+  filtered_signal = ECGSignalChannel(new WrappedVector);
+  filtered_signal->signal = gsl_vector_alloc(nr_samples);
 
   //read signals
   for (i = 0; i < nr_samples; i++)
@@ -405,4 +436,66 @@ bool ECGController::readFile(std::string filename)
   LOG_END
   TRI_LOG_STR(" returns true");
   return true;
+}
+
+void ECGController::rerunAnalysis( std::function<void(std::string)> statusUpdate, std::function<void()> analysisComplete )
+{
+	TRI_LOG_STR(__FUNCTION__);
+
+	//cleaning after previous computation/stopping it
+	if(computation)
+	{
+		computation->interrupt();
+		computation->join();
+		delete computation;
+		computation = NULL;
+	}
+	if(statusUpdate && analysisComplete)
+	{
+
+#define HANDLE_INTERRUPTION							\
+	try {											\
+		boost::this_thread::interruption_point(); } \
+	catch(...) {									\
+		return;										\
+	}
+
+		analysisCompl = false;
+		computation = new boost::thread([=](){
+			statusUpdate("Analysis begins");
+			runECGBaseline();
+			HANDLE_INTERRUPTION
+			statusUpdate("Baseline removal completed; R peaks detection ongoing.");
+			runRPeaks();
+			HANDLE_INTERRUPTION
+			statusUpdate("R peaks detection completed; HRV1 analysis ongoing.");
+			//runHRV1();
+			HANDLE_INTERRUPTION
+			statusUpdate("HRV1 analysis completed; HRV2 analysis ongoing.");
+			runHRV2();
+			HANDLE_INTERRUPTION
+			statusUpdate("HRV2 analysis completed; waves analysis ongoing.");
+			//runWaves();
+			HANDLE_INTERRUPTION
+			statusUpdate("ST segment analysis completed; QRS analysis ongoing.");
+			runQRSClass();
+			HANDLE_INTERRUPTION
+			statusUpdate("QRS analysis completed; ST interval analysis ongoing.");
+			runSTInterval();
+			HANDLE_INTERRUPTION
+			statusUpdate("ST interval analysis completed; HRVDFA analysis ongoing.");
+			runHRVDFA();
+			HANDLE_INTERRUPTION
+			statusUpdate("HRVDFA analysis completed; T wave alternans analysis ongoing.");
+			//runTwaveAlt();
+			HANDLE_INTERRUPTION
+			statusUpdate("T wave alternans analysis completed; HRT analysis ongoing.");
+			runHRT();
+			statusUpdate("Analysis complete!");
+			analysisComplete();
+			analysisCompl = true;
+		});
+	}
+	
+#undef HANDLE_INTERRUPTION
 }

@@ -1,12 +1,13 @@
 #include "plothrvtriangle.h"
+#include "boost/format.hpp"
 
 PlotHRVTriangle::PlotHRVTriangle(QWidget *parent) :
-    QwtPlot(parent)
+	QwtPlot(parent)
 {
 	setMinimumHeight(10);
 	setMinimumWidth(10);
 	
-	setAxisTitle(QwtPlot::xBottom, "t [s]");
+    setAxisTitle(QwtPlot::xBottom, "Numer przedziału");
 	setAxisTitle(QwtPlot::yLeft, "Liczba wszystkich odstępów RR");
 	
 	rr = new QwtPlotCurve("RR");
@@ -38,14 +39,14 @@ PlotHRVTriangle::PlotHRVTriangle(QWidget *parent) :
 
 	mn = new QwtPlotMarker();
 	mx->setLineStyle(QwtPlotMarker::VLine);
-	mx->setLabel(tr("X"));
+	mx->setLabel(tr("N"));
 	mx->setLabelAlignment(Qt::AlignLeft | Qt::AlignBottom);
 	mx->setLinePen(QPen(Qt::gray, 0, Qt::DashLine));
 	mn->attach(this);
 
 	mm = new QwtPlotMarker();
 	mx->setLineStyle(QwtPlotMarker::VLine);
-	mx->setLabel(tr("X"));
+	mx->setLabel(tr("M"));
 	mx->setLabelAlignment(Qt::AlignRight | Qt::AlignBottom);
 	mx->setLinePen(QPen(Qt::gray, 0, Qt::DashLine));
 	mm->attach(this);
@@ -65,28 +66,45 @@ PlotHRVTriangle::~PlotHRVTriangle()
 
 void PlotHRVTriangle::setData(ECGHRV2 &data)
 {
-	gsl_vector_int *hx = data.GetHistogram_x()->signal;
-	gsl_vector_int *hy = data.GetHistogram_y()->signal;
-	double x = data.GetTriple_index_x();
-	double y = data.GetTriple_index_y();
-	double n = 200.0;
-	double m = 800.0;
-	int size = int(hx->size); // == hy.size
-	
+	IntSignal hx = data.GetHistogram_x();
+	IntSignal hy = data.GetHistogram_y();
+	double x = data.GetX();
+	double y = data.GetY();
+	double n = data.GetN();
+	double m = data.GetM();
+	size_t size = hx->signal->size;
 	QVector<QPointF> peaks;
 	for (int i = 0; i < size; ++i)
 	{
-		peaks.push_back(QPointF(float(hx->data[i*hx->stride]), float(hy->data[i*hy->stride])));
+		peaks.push_back(QPointF(float(hx->get(i)), float(hy->get(i))));
 	}
 	rr->setSamples(peaks);
 	
-	QVector<QPointF> vxn = {QPointF(x, y), QPointF(n, 0.0)};
-	QVector<QPointF> vxm = {QPointF(x, y), QPointF(m, 0.0)};
+	QVector<QPointF> vxn;
+	vxn.push_back(QPointF(x, y));
+	vxn.push_back(QPointF(n, 0.0));
+	QVector<QPointF> vxm;
+	vxm.push_back(QPointF(x, y));
+	vxm.push_back(QPointF(m, 0.0));
 	xn->setSamples(vxn);
 	xm->setSamples(vxm);
-    mx->setValue(x, y);
-    my->setValue(m, y);
-    mn->setValue(n, 0.0);
-    mm->setValue(m, 0.0);
-	replot();
+	mx->setValue(x, y);
+	my->setValue(m, y);
+	mn->setValue(n, 0.0);
+	mm->setValue(m, 0.0);
+    std::string title = (boost::format("Numer przedziału (długość: %f ms)") % data.GetHistogramBinLength()).str();
+    setAxisTitle(QwtPlot::xBottom, title.c_str());
+    replot();
+}
+
+
+void PlotHRVTriangle::toggleTriangle(bool checked)
+{
+    xn->setVisible(checked);
+    xm->setVisible(checked);
+    mx->setVisible(checked);
+    my->setVisible(checked);
+    mn->setVisible(checked);
+    mm->setVisible(checked);
+    replot();
 }
