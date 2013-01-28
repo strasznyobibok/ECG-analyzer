@@ -1,4 +1,4 @@
 ECG-analyzer
 ============
 
-Main ECG-analyzer repository
+Backup ECG-analyzer repository.
